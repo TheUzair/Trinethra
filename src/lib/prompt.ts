@@ -104,11 +104,20 @@ Output JSON schema (return EXACTLY this shape):
 
 Provide 4–8 evidence items, 1–4 KPI mappings, 1–4 gaps, 3–5 follow-up questions, and 0–3 bias flags.`;
 
+  // Safety-trim: keep transcript under ~10 000 chars (≈2 500 tokens) so the
+  // total request (system ~1 500 t + transcript + response ~1 000 t) stays well
+  // within Groq free-tier limits (14 400 TPM for gemma2-9b-it).
+  const MAX_TRANSCRIPT_CHARS = 6_000;
+  const trimmedTranscript =
+    transcript.trim().length > MAX_TRANSCRIPT_CHARS
+      ? transcript.trim().slice(0, MAX_TRANSCRIPT_CHARS) + "\n\n[transcript truncated for length]"
+      : transcript.trim();
+
   const user = `Fellow: ${fellowName}
 ${meta?.supervisor ? `Supervisor: ${meta.supervisor}\n` : ""}${meta?.company ? `Company: ${meta.company}\n` : ""}
 Transcript:
 """
-${transcript.trim()}
+${trimmedTranscript}
 """
 
 Return the JSON object now. Do not wrap it in code fences.`;
