@@ -59,6 +59,21 @@ export function RegisterForm() {
       transition={{ duration: 0.25 }}
       className="space-y-4"
     >
+      {/* Demo credentials banner */}
+      <div className="rounded-lg border border-accent/30 bg-accent/5 p-3 text-xs">
+        <p className="font-medium text-foreground">
+          Just exploring? Skip signup.
+        </p>
+        <p className="mt-0.5 text-muted-foreground">
+          Use the demo account on the{" "}
+          <Link href="/login" className="font-medium text-accent hover:underline">
+            sign-in page
+          </Link>
+          : <span className="font-mono">demo@trinethra.app</span> /{" "}
+          <span className="font-mono">demo1234</span>
+        </p>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="name">Full name</Label>
         <div className="relative">

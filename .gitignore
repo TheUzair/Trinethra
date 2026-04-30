@@ -9,3 +9,4 @@ src/generated/prisma/
 .vercel/
 .turbo/
 next-env.d.ts
+tsconfig.tsbuildinfo

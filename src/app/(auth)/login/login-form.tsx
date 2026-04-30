@@ -56,6 +56,11 @@ export function LoginForm() {
     void signIn("google", { callbackUrl });
   }
 
+  function fillDemo() {
+    setEmail("demo@trinethra.app");
+    setPassword("demo1234");
+  }
+
   return (
     <motion.form
       onSubmit={submit}
@@ -64,6 +69,26 @@ export function LoginForm() {
       transition={{ duration: 0.25 }}
       className="space-y-4"
     >
+      {/* Demo credentials banner */}
+      <div className="rounded-lg border border-accent/30 bg-accent/5 p-3 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="font-medium text-foreground">Try the demo account</p>
+            <p className="mt-0.5 text-muted-foreground">
+              <span className="font-mono">demo@trinethra.app</span> ·{" "}
+              <span className="font-mono">demo1234</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fillDemo}
+            className="shrink-0 rounded-md border border-accent/40 bg-card px-2.5 py-1 font-medium text-accent hover:bg-accent/10 transition-colors"
+          >
+            Use demo
+          </button>
+        </div>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <div className="relative">

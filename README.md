@@ -11,6 +11,27 @@
 [![Prisma](https://img.shields.io/badge/Prisma-7-2D3748)](https://prisma.io)
 [![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8)](https://tailwindcss.com)
 [![Groq](https://img.shields.io/badge/LLM-Groq-f55036)](https://console.groq.com)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000?logo=vercel)](https://trinethra-git-main-theuzairs-projects.vercel.app)
+
+---
+
+## 🚀 Live demo
+
+> **[https://trinethra-git-main-theuzairs-projects.vercel.app](https://trinethra-git-main-theuzairs-projects.vercel.app)**
+
+Sign in with the demo account — no signup needed:
+
+| Field    | Value                |
+| -------- | -------------------- |
+| Email    | `demo@trinethra.app` |
+| Password | `demo1234`           |
+
+The login page also has a **"Use demo"** button that auto-fills these
+credentials. Once signed in, click **Load sample** in the analyzer to
+try one of the bundled supervisor transcripts and watch the analysis
+stream in.
+
+---
 
 ---
 
@@ -123,25 +144,51 @@ AUTH_GOOGLE_SECRET=""
 npx prisma migrate dev --name init
 ```
 
-### 4. Run the app
+### 4. (Optional) Seed the demo user
+
+```bash
+npm run db:seed
+```
+
+Creates `demo@trinethra.app` / `demo1234` so you can use the login
+page's **Use demo** button right away. Idempotent — safe to re-run.
+
+### 5. Run the app
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), register an account, and
-click **Load sample** to try one of the built-in transcripts.
+Open [http://localhost:3000](http://localhost:3000), register an account
+(or sign in with the demo user), and click **Load sample** to try one of
+the built-in transcripts.
 
 ---
 
 ## Deploy to Vercel
 
-1. Push to GitHub.
+The app is already live at
+**[trinethra-git-main-theuzairs-projects.vercel.app](https://trinethra-git-main-theuzairs-projects.vercel.app)**.
+To deploy your own copy:
+
+1. Push the repo to GitHub.
 2. Import the project on [vercel.com/new](https://vercel.com/new).
-3. Add all `.env` values in **Project Settings → Environment Variables**.
-4. For Google OAuth, add
+3. Add all `.env` values in **Project Settings → Environment Variables**
+   (`DATABASE_URL`, `AUTH_SECRET`, `GROQ_API_KEY`, optionally Google OAuth keys).
+4. Deploy. The `postinstall` hook runs `prisma generate` automatically on
+   every Vercel build so the Prisma Client is always in sync with the schema.
+5. (One-time) seed the demo user against your production database:
+   ```bash
+   DATABASE_URL="<your-prod-url>" npm run db:seed
+   ```
+6. For Google OAuth, add
    `https://<your-app>.vercel.app/api/auth/callback/google` as an
    authorised redirect URI in Google Cloud Console.
+
+> **Build note:** Prisma's generated client lives at `src/generated/prisma/`
+> and is git-ignored. The `postinstall` and `build` scripts both invoke
+> `prisma generate` so deploys never fail with `Module not found:
+'@/generated/prisma'`.
 
 ---
 
@@ -274,6 +321,7 @@ config with PrismaAdapter + bcrypt + Google provider.
 trinethra/
 ├─ prisma/
 │  ├─ schema.prisma          # User / Account / Session / Analysis / PasswordResetToken
+│  ├─ seed.ts                # idempotent demo-user seed (npm run db:seed)
 │  └─ migrations/
 ├─ src/
 │  ├─ app/
