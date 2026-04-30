@@ -6,7 +6,9 @@ import { buildAnalysisPrompt } from "@/lib/prompt";
 import { streamGroqTokens, analysisSchema, extractJson } from "@/lib/groq";
 
 export const runtime = "nodejs";
-export const maxDuration = 480;
+// Vercel Hobby plan caps Serverless Functions at 300s. Groq streams in
+// well under a minute for typical transcripts, so this is comfortably enough.
+export const maxDuration = 300;
 
 const schema = z.object({
   transcript: z.string().min(50, "Transcript must be at least 50 characters"),
