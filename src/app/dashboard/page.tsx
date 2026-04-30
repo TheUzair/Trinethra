@@ -4,43 +4,47 @@ import { Analyzer } from "./analyzer";
 
 export const metadata = { title: "Analyze · Trinethra" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ a?: string }>;
+}) {
   const session = await auth();
-  if (!session?.user?.id) return null; // middleware will redirect
+  if (!session?.user?.id) return null;
 
-  const recent = await prisma.analysis.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    take: 8,
-    select: {
-      id: true,
-      fellowName: true,
-      company: true,
-      model: true,
-      createdAt: true,
-      result: true,
-    },
-  });
+  const params = await searchParams;
+
+  // Load a saved analysis when sidebar recent item is clicked
+  let initialAnalysis: unknown = null;
+  let initialTranscript = "";
+  let initialFellowName = "";
+  let initialCompany = "";
+  let initialSupervisor = "";
+  let initialModel = "";
+
+  if (params.a) {
+    const row = await prisma.analysis.findFirst({
+      where: { id: params.a, userId: session.user.id },
+    });
+    if (row) {
+      initialAnalysis = row.result;
+      initialTranscript = row.transcript;
+      initialFellowName = row.fellowName ?? "";
+      initialCompany = row.company ?? "";
+      initialSupervisor = row.supervisor ?? "";
+      initialModel = row.model ?? "";
+    }
+  }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Welcome, {session.user.name?.split(" ")[0] ?? "there"}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Paste a transcript on the left, run analysis, review the draft on the right.
-        </p>
-      </div>
-      <Analyzer recent={recent.map((r) => ({
-        id: r.id,
-        fellowName: r.fellowName,
-        company: r.company,
-        model: r.model,
-        createdAt: r.createdAt.toISOString(),
-        // result is JsonValue; coerce to unknown for the client
-        result: r.result as unknown,
-      }))} />
-    </main>
+    <Analyzer
+      initialAnalysis={initialAnalysis}
+      initialTranscript={initialTranscript}
+      initialFellowName={initialFellowName}
+      initialCompany={initialCompany}
+      initialSupervisor={initialSupervisor}
+      initialModel={initialModel}
+    />
   );
 }
+

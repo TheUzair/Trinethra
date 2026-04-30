@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import React, { useState, useTransition, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowPathIcon,
@@ -50,15 +50,6 @@ type Analysis = {
   biasFlags: { bias: string; detail: string }[];
 };
 
-type RecentItem = {
-  id: string;
-  fellowName: string | null;
-  company: string | null;
-  model: string;
-  createdAt: string;
-  result: unknown;
-};
-
 const DIMENSION_LABEL: Record<string, string> = {
   execution: "Driving Execution",
   systems_building: "Systems Building",
@@ -83,20 +74,42 @@ function bandClass(value: number) {
   return "band-perf";
 }
 
-export function Analyzer({ recent }: { recent: RecentItem[] }) {
-  const [transcript, setTranscript] = useState("");
-  const [fellowName, setFellowName] = useState("");
-  const [supervisor, setSupervisor] = useState("");
-  const [company, setCompany] = useState("");
-  const [model, setModel] = useState(""); // empty -> server default
+export function Analyzer({
+  initialAnalysis = null,
+  initialTranscript = "",
+  initialFellowName = "",
+  initialCompany = "",
+  initialSupervisor = "",
+  initialModel = "",
+}: {
+  initialAnalysis?: unknown;
+  initialTranscript?: string;
+  initialFellowName?: string;
+  initialCompany?: string;
+  initialSupervisor?: string;
+  initialModel?: string;
+}) {
+  const [transcript, setTranscript] = useState(initialTranscript);
+  const [fellowName, setFellowName] = useState(initialFellowName);
+  const [supervisor, setSupervisor] = useState(initialSupervisor);
+  const [company, setCompany] = useState(initialCompany);
+  const [model, setModel] = useState(initialModel);
   const [save, setSave] = useState(true);
 
   const [samples, setSamples] = useState<Sample[]>([]);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [usedModel, setUsedModel] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(
+    (initialAnalysis as Analysis) ?? null
+  );
+  const [usedModel, setUsedModel] = useState<string | null>(
+    initialModel || null
+  );
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [streaming, setStreaming] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [thinkingText, setThinkingText] = useState("");
+  const [, startTransition] = useTransition();
   const [highlightQuote, setHighlightQuote] = useState<string | null>(null);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   async function loadSamples() {
     if (samples.length) return;
@@ -119,180 +132,199 @@ export function Analyzer({ recent }: { recent: RecentItem[] }) {
   function run() {
     setError(null);
     setAnalysis(null);
+    setThinkingText("");
+    setConnected(false);
+    setStreaming(true);
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
     startTransition(async () => {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          fellowName: fellowName || undefined,
-          supervisor: supervisor || undefined,
-          company: company || undefined,
-          model: model || undefined,
-          save,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as
-        | { ok: true; analysis: Analysis; model: string }
-        | { error: string };
-      if (!res.ok || !("ok" in data)) {
-        setError("error" in data ? data.error : "Analysis failed");
-        return;
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transcript,
+            fellowName: fellowName || undefined,
+            supervisor: supervisor || undefined,
+            company: company || undefined,
+            model: model || undefined,
+            save,
+          }),
+          signal,
+        });
+
+        if (!res.ok || !res.body) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setError(data.error ?? "Analysis failed");
+          setStreaming(false);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) {
+            const line = part.replace(/^data: /, "").trim();
+            if (!line) continue;
+            try {
+              const evt = JSON.parse(line) as
+                | { type: "ping" }
+                | { type: "token"; text: string }
+                | { type: "result"; analysis: Analysis; model: string }
+                | { type: "error"; message: string };
+              if (evt.type === "ping") {
+                setConnected(true);
+              } else if (evt.type === "token") {
+                setThinkingText((t) => t + evt.text);
+              } else if (evt.type === "result") {
+                setAnalysis(evt.analysis);
+                setUsedModel(evt.model);
+                setStreaming(false);
+              } else if (evt.type === "error") {
+                setError(evt.message);
+                setStreaming(false);
+              }
+            } catch {
+              // malformed SSE line — skip
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as { name?: string }).name !== "AbortError") {
+          setError(err instanceof Error ? err.message : "Analysis failed");
+        }
+        setStreaming(false);
       }
-      setAnalysis(data.analysis);
-      setUsedModel(data.model);
     });
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      {/* LEFT: input */}
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <DocumentTextIcon className="h-5 w-5" />
-                  Supervisor transcript
-                </CardTitle>
-                <CardDescription>Paste the call transcript. Add metadata if you know it.</CardDescription>
-              </div>
-              <SampleMenu samples={samples} onOpen={loadSamples} onPick={applySample} />
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Fellow name" value={fellowName} onChange={setFellowName} placeholder="e.g. Karthik Narayanan" />
-              <Field label="Company" value={company} onChange={setCompany} placeholder="e.g. Veerabhadra Auto Components" />
-              <Field label="Supervisor" value={supervisor} onChange={setSupervisor} placeholder="e.g. Mr. Suresh Patil (Founder)" />
-              <Field label="Ollama model (optional)" value={model} onChange={setModel} placeholder="default: server config" />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="transcript">Transcript</Label>
-              <Textarea
-                id="transcript"
-                value={transcript}
-                onChange={(e) => setTranscript(e.target.value)}
-                placeholder="Paste the full supervisor transcript here…"
-                className="min-h-[280px] font-mono text-[13px] leading-relaxed"
-              />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{transcript.length.toLocaleString()} characters</span>
-                <span>≈ {Math.max(1, Math.ceil(transcript.split(/\s+/).filter(Boolean).length / 130))} min read</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <Button onClick={run} disabled={pending || transcript.trim().length < 50} size="lg">
-                {pending ? (
-                  <>
-                    <ArrowPathIcon className="h-4 w-4 animate-spin" />
-                    Running local LLM…
-                  </>
-                ) : (
-                  <>
-                    <PlayIcon className="h-4 w-4" />
-                    Run analysis
-                  </>
-                )}
-              </Button>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground select-none">
-                <input
-                  type="checkbox"
-                  checked={save}
-                  onChange={(e) => setSave(e.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-[rgb(var(--accent))]"
-                />
-                Save to my history
-              </label>
-            </div>
-
-            {error ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-                {error}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        {recent.length > 0 ? (
+    <div className="flex h-full overflow-hidden divide-x divide-border">
+      {/* ── LEFT PANEL: input form ────────────────────── */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="p-5 space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Recent analyses</CardTitle>
-              <CardDescription>Click to load the result.</CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <DocumentTextIcon className="h-5 w-5" />
+                    Supervisor transcript
+                  </CardTitle>
+                  <CardDescription>Paste the call transcript. Add metadata if you know it.</CardDescription>
+                </div>
+                <SampleMenu samples={samples} onOpen={loadSamples} onPick={applySample} />
+              </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {recent.map((r) => {
-                const a = r.result as Analysis | null;
-                return (
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Fellow name" value={fellowName} onChange={setFellowName} placeholder="e.g. Karthik Narayanan" />
+                <Field label="Company" value={company} onChange={setCompany} placeholder="e.g. Veerabhadra Auto" />
+                <Field label="Supervisor" value={supervisor} onChange={setSupervisor} placeholder="e.g. Mr. Suresh Patil" />
+                <Field label="Groq model (optional)" value={model} onChange={setModel} placeholder="default: llama-3.3-70b-versatile" />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="transcript">Transcript</Label>
+                <Textarea
+                  id="transcript"
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder="Paste the full supervisor transcript here…"
+                  className="min-h-70 font-mono text-[13px] leading-relaxed"
+                />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{transcript.length.toLocaleString()} characters</span>
+                  <span>≈ {Math.max(1, Math.ceil(transcript.split(/\s+/).filter(Boolean).length / 130))} min read</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <Button onClick={run} disabled={streaming || transcript.trim().length < 50} size="lg">
+                  {streaming ? (
+                    <>
+                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                      Analyzing…
+                    </>
+                  ) : (
+                    <>
+                      <PlayIcon className="h-4 w-4" />
+                      Run analysis
+                    </>
+                  )}
+                </Button>
+                {streaming ? (
                   <button
-                    key={r.id}
                     type="button"
-                    onClick={() => {
-                      if (a) {
-                        setAnalysis(a);
-                        setUsedModel(r.model);
-                        setFellowName(r.fellowName ?? "");
-                        setCompany(r.company ?? "");
-                      }
-                    }}
-                    className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-left text-sm hover:bg-muted"
+                    onClick={() => { abortRef.current?.abort(); setStreaming(false); }}
+                    className="text-xs text-muted-foreground underline hover:text-foreground"
                   >
-                    <div>
-                      <div className="font-medium">
-                        {r.fellowName ?? "Unnamed Fellow"}
-                        {r.company ? <span className="text-muted-foreground"> · {r.company}</span> : null}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(r.createdAt).toLocaleString()} · {r.model}
-                      </div>
-                    </div>
-                    {a ? (
-                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", bandClass(a.score.value))}>
-                        {a.score.value}
-                      </span>
-                    ) : null}
+                    Cancel
                   </button>
-                );
-              })}
+                ) : null}
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground select-none">
+                  <input
+                    type="checkbox"
+                    checked={save}
+                    onChange={(e) => setSave(e.target.checked)}
+                    className="h-4 w-4 rounded border-border accent-accent"
+                  />
+                  Save to history
+                </label>
+              </div>
+
+              {error ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+                  {error}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
-        ) : null}
+        </div>
       </div>
 
-      {/* RIGHT: output */}
-      <div className="space-y-4">
-        <AnimatePresence mode="wait">
-          {pending ? (
-            <SkeletonResult key="skeleton" />
-          ) : analysis ? (
-            <motion.div
-              key="result"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-4"
-            >
-              <ScoreCard analysis={analysis} model={usedModel} />
-              <EvidenceCard
-                analysis={analysis}
-                transcript={transcript}
-                onHover={setHighlightQuote}
-                highlight={highlightQuote}
-              />
-              <KpiCard analysis={analysis} />
-              <GapsCard analysis={analysis} />
-              <FollowUpCard analysis={analysis} />
-              {analysis.biasFlags.length > 0 ? <BiasCard analysis={analysis} /> : null}
-              {transcript ? <TranscriptCard transcript={transcript} highlight={highlightQuote} /> : null}
-            </motion.div>
-          ) : (
-            <EmptyState key="empty" />
-          )}
-        </AnimatePresence>
+      {/* ── RIGHT PANEL: output ───────────────────────── */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="p-5">
+          <AnimatePresence mode="wait">
+            {streaming ? (
+              <ThinkingBox key="thinking" text={thinkingText} connected={connected} />
+            ) : analysis ? (
+              <motion.div
+                key="result"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4"
+              >
+                <ScoreCard analysis={analysis} model={usedModel} />
+                <EvidenceCard
+                  analysis={analysis}
+                  transcript={transcript}
+                  onHover={setHighlightQuote}
+                  highlight={highlightQuote}
+                />
+                <KpiCard analysis={analysis} />
+                <GapsCard analysis={analysis} />
+                <FollowUpCard analysis={analysis} />
+                {analysis.biasFlags.length > 0 ? <BiasCard analysis={analysis} /> : null}
+                {transcript ? <TranscriptCard transcript={transcript} highlight={highlightQuote} /> : null}
+              </motion.div>
+            ) : (
+              <EmptyState key="empty" />
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );
@@ -539,7 +571,7 @@ function FollowUpCard({ analysis }: { analysis: Analysis }) {
         {analysis.followUpQuestions.map((q, i) => (
           <div key={i} className="rounded-lg border border-border p-3">
             <div className="flex items-start gap-2">
-              <CheckCircleIcon className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-500" />
+              <CheckCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
               <div>
                 <p className="text-sm font-medium">{q.question}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -595,7 +627,7 @@ function TranscriptCard({ transcript, highlight }: { transcript: string; highlig
         <CardDescription>Hover an evidence quote above to find it here.</CardDescription>
       </CardHeader>
       <CardContent>
-        <pre className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground/90">
+        <pre className="whitespace-pre-wrap wrap-break-word font-sans text-[13px] leading-relaxed text-foreground/90">
           {segments.map((s, i) =>
             s.hit ? (
               <mark key={i} className="rounded bg-yellow-200 px-0.5 text-foreground dark:bg-yellow-900/60">
@@ -616,39 +648,114 @@ function EmptyState() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="flex h-[400px] items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 p-8 text-center"
+      className="flex h-100 items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 p-8 text-center"
     >
       <div className="max-w-sm space-y-2">
         <SparklesIcon className="mx-auto h-8 w-8 text-muted-foreground" />
         <h3 className="text-base font-medium">No analysis yet</h3>
         <p className="text-sm text-muted-foreground">
-          Paste a transcript and click <strong>Run analysis</strong>. The local Ollama model will
-          extract evidence, suggest a score, and flag gaps. Output appears here.
+          Paste a transcript on the left and click <strong>Run analysis</strong>. Groq will
+          extract evidence, suggest a rubric score, and flag gaps. Output streams in here.
         </p>
       </div>
     </motion.div>
   );
 }
 
-function SkeletonResult() {
+function ThinkingBox({ text, connected }: { text: string; connected: boolean }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Tick every second
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Auto-scroll as tokens arrive
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [text]);
+
+  const hasTokens = text.length > 0;
+  const estTotal = 2400;
+  const pct = hasTokens ? Math.min(98, Math.round((text.length / estTotal) * 100)) : 0;
+
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const elapsedStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+  const phase = !connected
+    ? "Connecting to Groq…"
+    : !hasTokens
+      ? "Model is thinking…"
+      : "Streaming response…";
+
   return (
     <motion.div
-      key="sk"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
+      key="thinking"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className="space-y-4"
+      className="space-y-3"
     >
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-2xl border border-border bg-card p-6">
-          <div className="mb-3 h-4 w-1/3 animate-pulse rounded bg-muted" />
-          <div className="space-y-2">
-            <div className="h-3 w-full animate-pulse rounded bg-muted" />
-            <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
-            <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <ArrowPathIcon className="h-4 w-4 animate-spin text-accent" />
+            {phase}
           </div>
+          {/* always show elapsed so user knows it's alive */}
+          <span className="tabular-nums text-xs text-muted-foreground">{elapsedStr}</span>
         </div>
-      ))}
+
+        {/* progress bar */}
+        <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          {hasTokens ? (
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${pct}%` }}
+            />
+          ) : (
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-accent/40" />
+          )}
+        </div>
+
+        {/* status badges */}
+        <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
+          <span className={cn(
+            "rounded-full border px-2 py-0.5 font-medium",
+            connected
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+          )}>
+            {connected ? "✓ Connected" : "Connecting…"}
+          </span>
+          <span className={cn(
+            "rounded-full border px-2 py-0.5 font-medium",
+            hasTokens
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "border-border bg-muted text-muted-foreground"
+          )}>
+            {hasTokens ? `✓ ${text.length} chars` : "Waiting for first token…"}
+          </span>
+        </div>
+
+        {hasTokens ? (
+          <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-muted/50 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+            {text}
+            <div ref={bottomRef} />
+          </pre>
+        ) : (
+          <div className="space-y-2 text-xs text-muted-foreground">
+            <p>
+              {connected
+                ? "Groq is generating the analysis JSON. This is usually very fast — tokens appear here as they stream in."
+                : "Establishing connection to Groq…"}
+            </p>
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }
