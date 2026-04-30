@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+:root {
+  --background: 250 250 250;
+  --foreground: 9 9 11;
+  --card: 255 255 255;
+  --card-foreground: 9 9 11;
+  --primary: 17 24 39;
+  --primary-foreground: 250 250 250;
+  --muted: 244 244 245;
+  --muted-foreground: 113 113 122;
+  --border: 228 228 231;
+  --input: 228 228 231;
+  --ring: 24 24 27;
+  --radius: 0.75rem;
+  --accent: 99 102 241;
+}
+
+@theme inline {
+  --color-background: rgb(var(--background));
+  --color-foreground: rgb(var(--foreground));
+  --color-card: rgb(var(--card));
+  --color-card-foreground: rgb(var(--card-foreground));
+  --color-primary: rgb(var(--primary));
+  --color-primary-foreground: rgb(var(--primary-foreground));
+  --color-muted: rgb(var(--muted));
+  --color-muted-foreground: rgb(var(--muted-foreground));
+  --color-border: rgb(var(--border));
+  --color-ring: rgb(var(--ring));
+  --color-accent: rgb(var(--accent));
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 10 10 12;
+    --foreground: 245 245 247;
+    --card: 20 20 24;
+    --card-foreground: 245 245 247;
+    --primary: 245 245 247;
+    --primary-foreground: 10 10 12;
+    --muted: 30 30 35;
+    --muted-foreground: 161 161 170;
+    --border: 39 39 45;
+    --input: 39 39 45;
+    --ring: 200 200 210;
+    --accent: 129 140 248;
+  }
+}
+
+html,
+body {
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
+}
+
+body {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.card-hover {
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.18);
+}
+
+.band-need {
+  background: linear-gradient(135deg, rgb(254 226 226), rgb(254 202 202));
+  color: rgb(127 29 29);
+}
+.band-prod {
+  background: linear-gradient(135deg, rgb(254 249 195), rgb(254 240 138));
+  color: rgb(113 63 18);
+}
+.band-perf {
+  background: linear-gradient(135deg, rgb(220 252 231), rgb(187 247 208));
+  color: rgb(20 83 45);
+}
+@media (prefers-color-scheme: dark) {
+  .band-need {
+    background: linear-gradient(135deg, rgb(69 10 10), rgb(127 29 29));
+    color: rgb(254 226 226);
+  }
+  .band-prod {
+    background: linear-gradient(135deg, rgb(66 32 6), rgb(113 63 18));
+    color: rgb(254 240 138);
+  }
+  .band-perf {
+    background: linear-gradient(135deg, rgb(5 46 22), rgb(20 83 45));
+    color: rgb(187 247 208);
+  }
+}
