@@ -11,13 +11,13 @@
 [![Prisma](https://img.shields.io/badge/Prisma-7-2D3748)](https://prisma.io)
 [![Tailwind](https://img.shields.io/badge/Tailwind-4-38bdf8)](https://tailwindcss.com)
 [![Groq](https://img.shields.io/badge/LLM-Groq-f55036)](https://console.groq.com)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000?logo=vercel)](https://trinethra-git-main-theuzairs-projects.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-000000?logo=vercel)](https://trinethra-olive.vercel.app)
 
 ---
 
 ## 🚀 Live demo
 
-> **[https://trinethra-git-main-theuzairs-projects.vercel.app](https://trinethra-git-main-theuzairs-projects.vercel.app)**
+> **[https://trinethra-olive.vercel.app](https://trinethra-olive.vercel.app)**
 
 Sign in with the demo account — no signup needed:
 
@@ -166,7 +166,7 @@ the built-in transcripts.
 ## Deploy to Vercel
 
 The app is already live at
-**[trinethra-git-main-theuzairs-projects.vercel.app](https://trinethra-git-main-theuzairs-projects.vercel.app)**.
+**[trinethra-olive.vercel.app](https://trinethra-olive.vercel.app)**.
 To deploy your own copy:
 
 1. Push the repo to GitHub.
