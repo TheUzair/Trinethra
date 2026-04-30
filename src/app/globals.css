@@ -32,21 +32,19 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: 10 10 12;
-    --foreground: 245 245 247;
-    --card: 20 20 24;
-    --card-foreground: 245 245 247;
-    --primary: 245 245 247;
-    --primary-foreground: 10 10 12;
-    --muted: 30 30 35;
-    --muted-foreground: 161 161 170;
-    --border: 39 39 45;
-    --input: 39 39 45;
-    --ring: 200 200 210;
-    --accent: 129 140 248;
-  }
+.dark {
+  --background: 10 10 12;
+  --foreground: 245 245 247;
+  --card: 20 20 24;
+  --card-foreground: 245 245 247;
+  --primary: 245 245 247;
+  --primary-foreground: 10 10 12;
+  --muted: 30 30 35;
+  --muted-foreground: 161 161 170;
+  --border: 39 39 45;
+  --input: 39 39 45;
+  --ring: 200 200 210;
+  --accent: 129 140 248;
 }
 
 html,

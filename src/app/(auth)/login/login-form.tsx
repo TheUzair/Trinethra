@@ -123,7 +123,7 @@ export function LoginForm() {
           type="checkbox"
           checked={remember}
           onChange={(e) => setRemember(e.target.checked)}
-          className="h-4 w-4 rounded border-border accent-[rgb(var(--accent))]"
+          className="h-4 w-4 rounded border-border accent-accent"
         />
         Remember me for 30 days
       </label>
