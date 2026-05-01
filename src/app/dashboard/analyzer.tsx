@@ -350,6 +350,7 @@ export function Analyzer({
                 ) : null}
               </CardContent>
             </Card>
+            {transcript ? <TranscriptCard transcript={transcript} highlight={highlightQuote} /> : null}
           </div>
         </div>
 
@@ -382,7 +383,6 @@ export function Analyzer({
                   <FollowUpCard analysis={analysis} review={review?.followUpQuestions ?? null} onUpdate={updateFollowUpReview} />
                   {analysis.biasFlags.length > 0 ? <BiasCard analysis={analysis} review={review?.biasFlags ?? null} onUpdate={updateBiasFlagReview} /> : null}
                   {review && <ReviewProgress review={review} onFinalize={() => setShowFinal(true)} />}
-                  {transcript ? <TranscriptCard transcript={transcript} highlight={highlightQuote} /> : null}
                 </motion.div>
               ) : (
                 <EmptyState key="empty" />
@@ -1281,6 +1281,7 @@ function ReviewProgress({ review, onFinalize }: { review: ReviewState; onFinaliz
 }
 
 function TranscriptCard({ transcript, highlight }: { transcript: string; highlight: string | null }) {
+  const markRef = useRef<HTMLElement | null>(null);
   const segments = useMemo(() => {
     if (!highlight) return [{ text: transcript, hit: false }];
     const idx = transcript.indexOf(highlight);
@@ -1291,6 +1292,13 @@ function TranscriptCard({ transcript, highlight }: { transcript: string; highlig
       { text: transcript.slice(idx + highlight.length), hit: false },
     ];
   }, [transcript, highlight]);
+
+  useEffect(() => {
+    if (highlight && markRef.current) {
+      markRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlight]);
+
   return (
     <Card>
       <CardHeader>
@@ -1298,13 +1306,13 @@ function TranscriptCard({ transcript, highlight }: { transcript: string; highlig
           <BookmarkIcon className="h-5 w-5" />
           Transcript
         </CardTitle>
-        <CardDescription>Hover an evidence quote above to find it here.</CardDescription>
+        <CardDescription>Hover an evidence quote on the right to highlight it here.</CardDescription>
       </CardHeader>
       <CardContent>
         <pre className="whitespace-pre-wrap wrap-break-word font-sans text-[13px] leading-relaxed text-foreground/90">
           {segments.map((s, i) =>
             s.hit ? (
-              <mark key={i} className="rounded bg-yellow-200 px-0.5 text-foreground dark:bg-yellow-900/60">
+              <mark key={i} ref={(el) => { markRef.current = el; }} className="rounded bg-yellow-200 px-0.5 text-foreground dark:bg-yellow-900/60">
                 {s.text}
               </mark>
             ) : (
