@@ -757,9 +757,9 @@ function KpiCard({
               state === "rejected" && "border-border opacity-50",
               state === "pending" && "border-border"
             )}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Badge>{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                  <Badge className="self-start">{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
                   <span className={cn("text-xs font-medium", k.systemOrPersonal === "system" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300")}>
                     {k.systemOrPersonal === "system" ? "system" : "personal"}
                   </span>
@@ -1179,8 +1179,8 @@ function FinalizedModal({
               <div className="grid gap-2 sm:grid-cols-2">
                 {final.kpiMapping.map((k, i) => (
                   <div key={i} className="rounded-lg border border-border p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge>{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
+                    <div className="flex flex-col gap-1 mb-1">
+                      <Badge className="self-start">{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
                       <span className={cn("text-xs font-medium", k.systemOrPersonal === "system" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300")}>
                         {k.systemOrPersonal}
                       </span>
