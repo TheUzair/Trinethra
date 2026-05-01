@@ -50,6 +50,36 @@ type Analysis = {
   biasFlags: { bias: string; detail: string }[];
 };
 
+// ── Review state ──────────────────────────────────────────────────────────────
+type FindingState = "pending" | "accepted" | "rejected";
+
+type ScoreReview = { state: FindingState; editedValue: number | null; editedJustification: string | null };
+type EvidenceReview = { state: FindingState; editedSignal: Evidence["signal"] | null; editedInterpretation: string | null };
+type KpiReview = { state: FindingState };
+type GapReview = { state: FindingState };
+type FollowUpReview = { state: FindingState; editedQuestion: string | null };
+type BiasFlagReview = { state: FindingState };
+
+type ReviewState = {
+  score: ScoreReview;
+  evidence: EvidenceReview[];
+  kpiMapping: KpiReview[];
+  gaps: GapReview[];
+  followUpQuestions: FollowUpReview[];
+  biasFlags: BiasFlagReview[];
+};
+
+function initReviewState(a: Analysis): ReviewState {
+  return {
+    score: { state: "pending", editedValue: null, editedJustification: null },
+    evidence: a.evidence.map(() => ({ state: "pending", editedSignal: null, editedInterpretation: null })),
+    kpiMapping: a.kpiMapping.map(() => ({ state: "pending" })),
+    gaps: a.gaps.map(() => ({ state: "pending" })),
+    followUpQuestions: a.followUpQuestions.map(() => ({ state: "pending", editedQuestion: null })),
+    biasFlags: a.biasFlags.map(() => ({ state: "pending" })),
+  };
+}
+
 const DIMENSION_LABEL: Record<string, string> = {
   execution: "Driving Execution",
   systems_building: "Systems Building",
@@ -110,6 +140,36 @@ export function Analyzer({
   const [, startTransition] = useTransition();
   const [highlightQuote, setHighlightQuote] = useState<string | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
+
+  const [reviewedAnalysis, setReviewedAnalysis] = useState<Analysis | null>(null);
+  const [review, setReview] = useState<ReviewState | null>(null);
+  const [showFinal, setShowFinal] = useState(false);
+
+  // Reset review state whenever analysis changes (derived-state pattern)
+  if (analysis !== reviewedAnalysis) {
+    setReviewedAnalysis(analysis);
+    setReview(analysis ? initReviewState(analysis) : null);
+    setShowFinal(false);
+  }
+
+  function updateScoreReview(update: Partial<ScoreReview>) {
+    setReview((r) => r ? { ...r, score: { ...r.score, ...update } } : r);
+  }
+  function updateEvidenceReview(idx: number, update: Partial<EvidenceReview>) {
+    setReview((r) => r ? { ...r, evidence: r.evidence.map((e, i) => i === idx ? { ...e, ...update } : e) } : r);
+  }
+  function updateKpiReview(idx: number, update: Partial<KpiReview>) {
+    setReview((r) => r ? { ...r, kpiMapping: r.kpiMapping.map((k, i) => i === idx ? { ...k, ...update } : k) } : r);
+  }
+  function updateGapReview(idx: number, update: Partial<GapReview>) {
+    setReview((r) => r ? { ...r, gaps: r.gaps.map((g, i) => i === idx ? { ...g, ...update } : g) } : r);
+  }
+  function updateFollowUpReview(idx: number, update: Partial<FollowUpReview>) {
+    setReview((r) => r ? { ...r, followUpQuestions: r.followUpQuestions.map((q, i) => i === idx ? { ...q, ...update } : q) } : r);
+  }
+  function updateBiasFlagReview(idx: number, update: Partial<BiasFlagReview>) {
+    setReview((r) => r ? { ...r, biasFlags: r.biasFlags.map((b, i) => i === idx ? { ...b, ...update } : b) } : r);
+  }
 
   async function loadSamples() {
     if (samples.length) return;
@@ -208,125 +268,141 @@ export function Analyzer({
   }
 
   return (
-    <div className="flex h-full overflow-hidden divide-x divide-border">
-      {/* ── LEFT PANEL: input form ────────────────────── */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="p-5 space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <DocumentTextIcon className="h-5 w-5" />
-                    Supervisor transcript
-                  </CardTitle>
-                  <CardDescription>Paste the call transcript. Add metadata if you know it.</CardDescription>
+    <>
+      <div className="flex h-full overflow-hidden divide-x divide-border">
+        {/* ── LEFT PANEL: input form ────────────────────── */}
+        <div className="flex-1 min-w-0 overflow-y-auto">
+          <div className="p-5 space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <DocumentTextIcon className="h-5 w-5" />
+                      Supervisor transcript
+                    </CardTitle>
+                    <CardDescription>Paste the call transcript. Add metadata if you know it.</CardDescription>
+                  </div>
+                  <SampleMenu samples={samples} onOpen={loadSamples} onPick={applySample} />
                 </div>
-                <SampleMenu samples={samples} onOpen={loadSamples} onPick={applySample} />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Fellow name" value={fellowName} onChange={setFellowName} placeholder="e.g. Karthik Narayanan" />
-                <Field label="Company" value={company} onChange={setCompany} placeholder="e.g. Veerabhadra Auto" />
-                <Field label="Supervisor" value={supervisor} onChange={setSupervisor} placeholder="e.g. Mr. Suresh Patil" />
-                <Field label="Groq model (optional)" value={model} onChange={setModel} placeholder="default: llama-3.3-70b-versatile" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="transcript">Transcript</Label>
-                <Textarea
-                  id="transcript"
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  placeholder="Paste the full supervisor transcript here…"
-                  className="min-h-70 font-mono text-[13px] leading-relaxed"
-                />
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{transcript.length.toLocaleString()} characters</span>
-                  <span>≈ {Math.max(1, Math.ceil(transcript.split(/\s+/).filter(Boolean).length / 130))} min read</span>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Fellow name" value={fellowName} onChange={setFellowName} placeholder="e.g. Karthik Narayanan" />
+                  <Field label="Company" value={company} onChange={setCompany} placeholder="e.g. Veerabhadra Auto" />
+                  <Field label="Supervisor" value={supervisor} onChange={setSupervisor} placeholder="e.g. Mr. Suresh Patil" />
+                  <Field label="Groq model (optional)" value={model} onChange={setModel} placeholder="default: llama-3.3-70b-versatile" />
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <Button onClick={run} disabled={streaming || transcript.trim().length < 50} size="lg">
-                  {streaming ? (
-                    <>
-                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
-                      Analyzing…
-                    </>
-                  ) : (
-                    <>
-                      <PlayIcon className="h-4 w-4" />
-                      Run analysis
-                    </>
-                  )}
-                </Button>
-                {streaming ? (
-                  <button
-                    type="button"
-                    onClick={() => { abortRef.current?.abort(); setStreaming(false); }}
-                    className="text-xs text-muted-foreground underline hover:text-foreground"
-                  >
-                    Cancel
-                  </button>
-                ) : null}
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground select-none">
-                  <input
-                    type="checkbox"
-                    checked={save}
-                    onChange={(e) => setSave(e.target.checked)}
-                    className="h-4 w-4 rounded border-border accent-accent"
+                <div className="space-y-2">
+                  <Label htmlFor="transcript">Transcript</Label>
+                  <Textarea
+                    id="transcript"
+                    value={transcript}
+                    onChange={(e) => setTranscript(e.target.value)}
+                    placeholder="Paste the full supervisor transcript here…"
+                    className="min-h-70 font-mono text-[13px] leading-relaxed"
                   />
-                  Save to history
-                </label>
-              </div>
-
-              {error ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-                  {error}
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{transcript.length.toLocaleString()} characters</span>
+                    <span>≈ {Math.max(1, Math.ceil(transcript.split(/\s+/).filter(Boolean).length / 130))} min read</span>
+                  </div>
                 </div>
-              ) : null}
-            </CardContent>
-          </Card>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <Button onClick={run} disabled={streaming || transcript.trim().length < 50} size="lg">
+                    {streaming ? (
+                      <>
+                        <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                        Analyzing…
+                      </>
+                    ) : (
+                      <>
+                        <PlayIcon className="h-4 w-4" />
+                        Run analysis
+                      </>
+                    )}
+                  </Button>
+                  {streaming ? (
+                    <button
+                      type="button"
+                      onClick={() => { abortRef.current?.abort(); setStreaming(false); }}
+                      className="text-xs text-muted-foreground underline hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground select-none">
+                    <input
+                      type="checkbox"
+                      checked={save}
+                      onChange={(e) => setSave(e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-accent"
+                    />
+                    Save to history
+                  </label>
+                </div>
+
+                {error ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+                    {error}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* ── RIGHT PANEL: output ───────────────────────── */}
+        <div className="flex-1 min-w-0 overflow-y-auto">
+          <div className="p-5">
+            <AnimatePresence mode="wait">
+              {streaming ? (
+                <ThinkingBox key="thinking" text={thinkingText} connected={connected} />
+              ) : analysis ? (
+                <motion.div
+                  key="result"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-4"
+                >
+                  <ScoreCard analysis={analysis} model={usedModel} review={review?.score ?? null} onUpdate={updateScoreReview} />
+                  <EvidenceCard
+                    analysis={analysis}
+                    transcript={transcript}
+                    onHover={setHighlightQuote}
+                    highlight={highlightQuote}
+                    review={review?.evidence ?? null}
+                    onUpdate={updateEvidenceReview}
+                  />
+                  <KpiCard analysis={analysis} review={review?.kpiMapping ?? null} onUpdate={updateKpiReview} />
+                  <GapsCard analysis={analysis} review={review?.gaps ?? null} onUpdate={updateGapReview} />
+                  <FollowUpCard analysis={analysis} review={review?.followUpQuestions ?? null} onUpdate={updateFollowUpReview} />
+                  {analysis.biasFlags.length > 0 ? <BiasCard analysis={analysis} review={review?.biasFlags ?? null} onUpdate={updateBiasFlagReview} /> : null}
+                  {review && <ReviewProgress review={review} onFinalize={() => setShowFinal(true)} />}
+                  {transcript ? <TranscriptCard transcript={transcript} highlight={highlightQuote} /> : null}
+                </motion.div>
+              ) : (
+                <EmptyState key="empty" />
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
-      {/* ── RIGHT PANEL: output ───────────────────────── */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="p-5">
-          <AnimatePresence mode="wait">
-            {streaming ? (
-              <ThinkingBox key="thinking" text={thinkingText} connected={connected} />
-            ) : analysis ? (
-              <motion.div
-                key="result"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="space-y-4"
-              >
-                <ScoreCard analysis={analysis} model={usedModel} />
-                <EvidenceCard
-                  analysis={analysis}
-                  transcript={transcript}
-                  onHover={setHighlightQuote}
-                  highlight={highlightQuote}
-                />
-                <KpiCard analysis={analysis} />
-                <GapsCard analysis={analysis} />
-                <FollowUpCard analysis={analysis} />
-                {analysis.biasFlags.length > 0 ? <BiasCard analysis={analysis} /> : null}
-                {transcript ? <TranscriptCard transcript={transcript} highlight={highlightQuote} /> : null}
-              </motion.div>
-            ) : (
-              <EmptyState key="empty" />
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-    </div>
+      {showFinal && analysis && review && (
+        <FinalizedModal
+          analysis={analysis}
+          review={review}
+          fellowName={fellowName}
+          company={company}
+          supervisor={supervisor}
+          onClose={() => setShowFinal(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -416,16 +492,42 @@ function ConfidencePill({ confidence }: { confidence: "low" | "medium" | "high" 
   );
 }
 
-function ScoreCard({ analysis, model }: { analysis: Analysis; model: string | null }) {
-  const v = analysis.score.value;
+function ScoreCard({
+  analysis,
+  model,
+  review,
+  onUpdate,
+}: {
+  analysis: Analysis;
+  model: string | null;
+  review: ScoreReview | null;
+  onUpdate: (u: Partial<ScoreReview>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const effectiveScore = review?.editedValue ?? analysis.score.value;
+  const effectiveJust = review?.editedJustification ?? analysis.score.justification;
+  const state = review?.state ?? "pending";
+  const [editVal, setEditVal] = useState(effectiveScore);
+  const [editJust, setEditJust] = useState(effectiveJust);
+
+  function openEdit() {
+    setEditVal(effectiveScore);
+    setEditJust(effectiveJust);
+    setEditing(true);
+  }
+  function saveEdit() {
+    onUpdate({ state: "accepted", editedValue: editVal, editedJustification: editJust });
+    setEditing(false);
+  }
+
   return (
-    <Card className="card-hover">
+    <Card className={cn("card-hover", state === "accepted" && "border-emerald-400 dark:border-emerald-700", state === "rejected" && "opacity-60")}>
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
           <div>
             <CardTitle className="text-base text-muted-foreground">Suggested rubric score</CardTitle>
-            <div className="mt-2 flex items-baseline gap-3">
-              <span className={cn("rounded-2xl px-4 py-2 text-4xl font-bold tabular-nums", bandClass(v))}>{v}</span>
+            <div className={cn("mt-2 flex items-baseline gap-3", state === "rejected" && "line-through decoration-red-500")}>
+              <span className={cn("rounded-2xl px-4 py-2 text-4xl font-bold tabular-nums", bandClass(effectiveScore))}>{effectiveScore}</span>
               <div>
                 <div className="text-lg font-semibold">{analysis.score.label}</div>
                 <div className="text-xs text-muted-foreground">{analysis.score.band}</div>
@@ -439,14 +541,60 @@ function ScoreCard({ analysis, model }: { analysis: Analysis; model: string | nu
                 {model}
               </span>
             ) : null}
+            {review && (
+              <FindingControls
+                state={state}
+                onAccept={() => { onUpdate({ state: "accepted" }); setEditing(false); }}
+                onReject={() => { onUpdate({ state: "rejected" }); setEditing(false); }}
+                onEdit={openEdit}
+              />
+            )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <p className="text-sm leading-relaxed text-foreground/80">{analysis.score.justification}</p>
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-          <strong className="font-medium">Draft, not verdict.</strong> The intern reviews and edits before this is final.
-        </div>
+        {editing && (
+          <div className="mb-3 space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-900/40 dark:bg-blue-950/30">
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-medium whitespace-nowrap">Score (1–10)</label>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={editVal}
+                onChange={(e) => setEditVal(Math.max(1, Math.min(10, Number(e.target.value))))}
+                className="w-16 rounded border border-border bg-background px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Justification</label>
+              <textarea
+                value={editJust}
+                onChange={(e) => setEditJust(e.target.value)}
+                rows={4}
+                className="w-full rounded border border-border bg-background px-2 py-1 text-sm leading-relaxed"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={saveEdit} className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700">Save</button>
+              <button type="button" onClick={() => setEditing(false)} className="rounded border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+            </div>
+          </div>
+        )}
+        <p className={cn("text-sm leading-relaxed text-foreground/80", state === "rejected" && "line-through decoration-red-400")}>{effectiveJust}</p>
+        {state === "accepted" ? (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <strong className="font-medium">✓ Accepted{review?.editedValue !== null ? " (edited)" : ""}.</strong> Intern has reviewed this score.
+          </div>
+        ) : state === "rejected" ? (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50/60 px-3 py-2 text-xs text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+            <strong className="font-medium">✕ Rejected.</strong> Intern has dismissed this score suggestion.
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+            <strong className="font-medium">Draft, not verdict.</strong> Accept, reject, or edit before finalizing.
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -462,12 +610,30 @@ function EvidenceCard({
   analysis,
   onHover,
   highlight,
+  review,
+  onUpdate,
 }: {
   analysis: Analysis;
   transcript: string;
   onHover: (q: string | null) => void;
   highlight: string | null;
+  review: EvidenceReview[] | null;
+  onUpdate: (idx: number, u: Partial<EvidenceReview>) => void;
 }) {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editSignal, setEditSignal] = useState<Evidence["signal"]>("neutral");
+  const [editInterp, setEditInterp] = useState("");
+
+  function openEdit(i: number, e: Evidence, r: EvidenceReview) {
+    setEditSignal(r.editedSignal ?? e.signal);
+    setEditInterp(r.editedInterpretation ?? e.interpretation);
+    setEditingIdx(i);
+  }
+  function saveEdit(i: number) {
+    onUpdate(i, { state: "accepted", editedSignal: editSignal, editedInterpretation: editInterp });
+    setEditingIdx(null);
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -475,65 +641,143 @@ function EvidenceCard({
           <ChatBubbleLeftRightIcon className="h-5 w-5" />
           Evidence ({analysis.evidence.length})
         </CardTitle>
-        <CardDescription>Hover a quote to highlight it in the transcript below.</CardDescription>
+        <CardDescription>Hover a quote to highlight it in the transcript. Accept, reject, or edit each piece of evidence.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {analysis.evidence.map((e, i) => (
-          <div
-            key={i}
-            onMouseEnter={() => onHover(e.quote)}
-            onMouseLeave={() => onHover(null)}
-            className={cn(
-              "rounded-lg border border-border p-3 transition",
-              highlight === e.quote && "border-accent ring-1 ring-accent/40"
-            )}
-          >
-            <div className="mb-2 flex items-center gap-2">
-              {signalBadge(e.signal)}
-              <Badge variant="outline">{DIMENSION_LABEL[e.dimension] ?? e.dimension}</Badge>
+        {analysis.evidence.map((e, i) => {
+          const r = review?.[i];
+          const state = r?.state ?? "pending";
+          const effSignal = r?.editedSignal ?? e.signal;
+          const effInterp = r?.editedInterpretation ?? e.interpretation;
+          return (
+            <div
+              key={i}
+              onMouseEnter={() => state !== "rejected" && onHover(e.quote)}
+              onMouseLeave={() => onHover(null)}
+              className={cn(
+                "rounded-lg border p-3 transition",
+                state === "accepted" && "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20",
+                state === "rejected" && "border-border opacity-50",
+                state === "pending" && highlight === e.quote && "border-accent ring-1 ring-accent/40",
+                state === "pending" && highlight !== e.quote && "border-border"
+              )}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {signalBadge(effSignal)}
+                  <Badge variant="outline">{DIMENSION_LABEL[e.dimension] ?? e.dimension}</Badge>
+                </div>
+                {r && (
+                  <FindingControls
+                    state={state}
+                    onAccept={() => { onUpdate(i, { state: "accepted" }); setEditingIdx(null); }}
+                    onReject={() => { onUpdate(i, { state: "rejected" }); setEditingIdx(null); }}
+                    onEdit={() => editingIdx === i ? setEditingIdx(null) : openEdit(i, e, r)}
+                  />
+                )}
+              </div>
+              <blockquote className={cn("border-l-2 border-border pl-3 text-sm italic text-foreground/90", state === "rejected" && "line-through decoration-red-400")}>
+                &ldquo;{e.quote}&rdquo;
+              </blockquote>
+              {editingIdx === i ? (
+                <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-900/40 dark:bg-blue-950/30">
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-medium">Signal</label>
+                    <select
+                      value={editSignal}
+                      onChange={(e) => setEditSignal(e.target.value as Evidence["signal"])}
+                      className="rounded border border-border bg-background px-2 py-1 text-xs"
+                    >
+                      <option value="positive">positive</option>
+                      <option value="negative">negative</option>
+                      <option value="neutral">neutral</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Interpretation</label>
+                    <textarea
+                      value={editInterp}
+                      onChange={(e) => setEditInterp(e.target.value)}
+                      rows={3}
+                      className="w-full rounded border border-border bg-background px-2 py-1 text-xs leading-relaxed"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => saveEdit(i)} className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700">Save</button>
+                    <button type="button" onClick={() => setEditingIdx(null)} className="rounded border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <p className={cn("mt-2 text-xs text-muted-foreground", state === "rejected" && "line-through decoration-red-400")}>{effInterp}</p>
+              )}
             </div>
-            <blockquote className="border-l-2 border-border pl-3 text-sm italic text-foreground/90">
-              &ldquo;{e.quote}&rdquo;
-            </blockquote>
-            <p className="mt-2 text-xs text-muted-foreground">{e.interpretation}</p>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
     </Card>
   );
 }
 
-function KpiCard({ analysis }: { analysis: Analysis }) {
+function KpiCard({
+  analysis,
+  review,
+  onUpdate,
+}: {
+  analysis: Analysis;
+  review: KpiReview[] | null;
+  onUpdate: (idx: number, u: Partial<KpiReview>) => void;
+}) {
   if (analysis.kpiMapping.length === 0) return null;
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">KPI mapping</CardTitle>
-        <CardDescription>Which business outcomes the supervisor is describing.</CardDescription>
+        <CardDescription>Which business outcomes the supervisor is describing. Accept or reject each mapping.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
-        {analysis.kpiMapping.map((k, i) => (
-          <div key={i} className="rounded-lg border border-border p-3">
-            <div className="flex items-center justify-between">
-              <Badge>{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
-              <span
-                className={cn(
-                  "text-xs font-medium",
-                  k.systemOrPersonal === "system" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"
+        {analysis.kpiMapping.map((k, i) => {
+          const r = review?.[i];
+          const state = r?.state ?? "pending";
+          return (
+            <div key={i} className={cn(
+              "rounded-lg border p-3 transition",
+              state === "accepted" && "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20",
+              state === "rejected" && "border-border opacity-50",
+              state === "pending" && "border-border"
+            )}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge>{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
+                  <span className={cn("text-xs font-medium", k.systemOrPersonal === "system" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300")}>
+                    {k.systemOrPersonal === "system" ? "system" : "personal"}
+                  </span>
+                </div>
+                {r && (
+                  <FindingControls
+                    state={state}
+                    onAccept={() => onUpdate(i, { state: "accepted" })}
+                    onReject={() => onUpdate(i, { state: "rejected" })}
+                  />
                 )}
-              >
-                {k.systemOrPersonal === "system" ? "system" : "personal"}
-              </span>
+              </div>
+              <p className={cn("mt-2 text-sm text-foreground/80", state === "rejected" && "line-through decoration-red-400")}>{k.evidence}</p>
             </div>
-            <p className="mt-2 text-sm text-foreground/80">{k.evidence}</p>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
     </Card>
   );
 }
 
-function GapsCard({ analysis }: { analysis: Analysis }) {
+function GapsCard({
+  analysis,
+  review,
+  onUpdate,
+}: {
+  analysis: Analysis;
+  review: GapReview[] | null;
+  onUpdate: (idx: number, u: Partial<GapReview>) => void;
+}) {
   if (analysis.gaps.length === 0) return null;
   return (
     <Card>
@@ -542,21 +786,52 @@ function GapsCard({ analysis }: { analysis: Analysis }) {
           <ExclamationTriangleIcon className="h-5 w-5 text-amber-500" />
           What the transcript didn&apos;t cover
         </CardTitle>
-        <CardDescription>Gaps the next call should fill.</CardDescription>
+        <CardDescription>Gaps the next call should fill. Accept or reject each identified gap.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {analysis.gaps.map((g, i) => (
-          <div key={i} className="rounded-lg border border-border p-3">
-            <div className="text-sm font-medium">{DIMENSION_LABEL[g.dimension] ?? g.dimension}</div>
-            <p className="mt-1 text-sm text-muted-foreground">{g.detail}</p>
-          </div>
-        ))}
+        {analysis.gaps.map((g, i) => {
+          const r = review?.[i];
+          const state = r?.state ?? "pending";
+          return (
+            <div key={i} className={cn(
+              "rounded-lg border p-3 transition",
+              state === "accepted" && "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20",
+              state === "rejected" && "border-border opacity-50",
+              state === "pending" && "border-border"
+            )}>
+              <div className="flex items-center justify-between gap-2">
+                <div className={cn("text-sm font-medium", state === "rejected" && "line-through decoration-red-400")}>
+                  {DIMENSION_LABEL[g.dimension] ?? g.dimension}
+                </div>
+                {r && (
+                  <FindingControls
+                    state={state}
+                    onAccept={() => onUpdate(i, { state: "accepted" })}
+                    onReject={() => onUpdate(i, { state: "rejected" })}
+                  />
+                )}
+              </div>
+              <p className={cn("mt-1 text-sm text-muted-foreground", state === "rejected" && "line-through decoration-red-400")}>{g.detail}</p>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
 }
 
-function FollowUpCard({ analysis }: { analysis: Analysis }) {
+function FollowUpCard({
+  analysis,
+  review,
+  onUpdate,
+}: {
+  analysis: Analysis;
+  review: FollowUpReview[] | null;
+  onUpdate: (idx: number, u: Partial<FollowUpReview>) => void;
+}) {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editQ, setEditQ] = useState("");
+
   if (analysis.followUpQuestions.length === 0) return null;
   return (
     <Card>
@@ -565,44 +840,443 @@ function FollowUpCard({ analysis }: { analysis: Analysis }) {
           <LightBulbIcon className="h-5 w-5 text-accent" />
           Suggested follow-up questions
         </CardTitle>
-        <CardDescription>Use these in the next call to close the gaps.</CardDescription>
+        <CardDescription>Use these in the next call to close the gaps. Accept, reject, or reword each question.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {analysis.followUpQuestions.map((q, i) => (
-          <div key={i} className="rounded-lg border border-border p-3">
-            <div className="flex items-start gap-2">
-              <CheckCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-              <div>
-                <p className="text-sm font-medium">{q.question}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant="outline">{DIMENSION_LABEL[q.targetGap] ?? q.targetGap}</Badge>
-                  <span>Looking for: {q.lookingFor}</span>
+        {analysis.followUpQuestions.map((q, i) => {
+          const r = review?.[i];
+          const state = r?.state ?? "pending";
+          const effQ = r?.editedQuestion ?? q.question;
+          return (
+            <div key={i} className={cn(
+              "rounded-lg border p-3 transition",
+              state === "accepted" && "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20",
+              state === "rejected" && "border-border opacity-50",
+              state === "pending" && "border-border"
+            )}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 flex-1 min-w-0">
+                  <CheckCircleIcon className={cn("mt-0.5 h-4 w-4 shrink-0", state === "accepted" ? "text-emerald-500" : state === "rejected" ? "text-muted-foreground" : "text-emerald-500")} />
+                  <div className="min-w-0">
+                    <p className={cn("text-sm font-medium", state === "rejected" && "line-through decoration-red-400")}>{effQ}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline">{DIMENSION_LABEL[q.targetGap] ?? q.targetGap}</Badge>
+                      <span>Looking for: {q.lookingFor}</span>
+                    </div>
+                  </div>
                 </div>
+                {r && (
+                  <FindingControls
+                    state={state}
+                    onAccept={() => { onUpdate(i, { state: "accepted" }); setEditingIdx(null); }}
+                    onReject={() => { onUpdate(i, { state: "rejected" }); setEditingIdx(null); }}
+                    onEdit={() => {
+                      if (editingIdx === i) { setEditingIdx(null); return; }
+                      setEditQ(effQ);
+                      setEditingIdx(i);
+                    }}
+                  />
+                )}
               </div>
+              {editingIdx === i && (
+                <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-900/40 dark:bg-blue-950/30">
+                  <label className="text-xs font-medium">Question text</label>
+                  <textarea
+                    value={editQ}
+                    onChange={(e) => setEditQ(e.target.value)}
+                    rows={3}
+                    className="w-full rounded border border-border bg-background px-2 py-1 text-sm leading-relaxed"
+                  />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { onUpdate(i, { state: "accepted", editedQuestion: editQ }); setEditingIdx(null); }} className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700">Save</button>
+                    <button type="button" onClick={() => setEditingIdx(null)} className="rounded border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
     </Card>
   );
 }
 
-function BiasCard({ analysis }: { analysis: Analysis }) {
+function BiasCard({
+  analysis,
+  review,
+  onUpdate,
+}: {
+  analysis: Analysis;
+  review: BiasFlagReview[] | null;
+  onUpdate: (idx: number, u: Partial<BiasFlagReview>) => void;
+}) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Potential supervisor biases</CardTitle>
-        <CardDescription>Things to weigh when finalizing.</CardDescription>
+        <CardDescription>Biases to weigh before finalizing. Accept (flagging it as worth noting) or reject (dismissing it).</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {analysis.biasFlags.map((b, i) => (
-          <div key={i} className="rounded-lg border border-border p-3">
-            <Badge variant="warning">{b.bias}</Badge>
-            <p className="mt-1 text-sm text-muted-foreground">{b.detail}</p>
-          </div>
-        ))}
+        {analysis.biasFlags.map((b, i) => {
+          const r = review?.[i];
+          const state = r?.state ?? "pending";
+          return (
+            <div key={i} className={cn(
+              "rounded-lg border p-3 transition",
+              state === "accepted" && "border-emerald-300 bg-emerald-50/40 dark:border-emerald-800 dark:bg-emerald-950/20",
+              state === "rejected" && "border-border opacity-50",
+              state === "pending" && "border-border"
+            )}>
+              <div className="flex items-center justify-between gap-2">
+                <Badge variant="warning">{b.bias}</Badge>
+                {r && (
+                  <FindingControls
+                    state={state}
+                    onAccept={() => onUpdate(i, { state: "accepted" })}
+                    onReject={() => onUpdate(i, { state: "rejected" })}
+                  />
+                )}
+              </div>
+              <p className={cn("mt-1 text-sm text-muted-foreground", state === "rejected" && "line-through decoration-red-400")}>{b.detail}</p>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Shared review controls ────────────────────────────────────────────────────
+function FindingControls({
+  state,
+  onAccept,
+  onReject,
+  onEdit,
+}: {
+  state: FindingState;
+  onAccept: () => void;
+  onReject: () => void;
+  onEdit?: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onClick={onAccept}
+        title="Accept"
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-full border text-xs transition-all",
+          state === "accepted"
+            ? "border-emerald-500 bg-emerald-500 text-white"
+            : "border-border text-muted-foreground hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40"
+        )}
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        onClick={onReject}
+        title="Reject"
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-full border text-xs transition-all",
+          state === "rejected"
+            ? "border-red-500 bg-red-500 text-white"
+            : "border-border text-muted-foreground hover:border-red-400 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+        )}
+      >
+        ✕
+      </button>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Edit"
+          className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-xs text-muted-foreground transition-all hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40"
+        >
+          ✎
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Finalized analysis builder ────────────────────────────────────────────────
+function buildFinalizedAnalysis(analysis: Analysis, review: ReviewState): Analysis {
+  return {
+    score: {
+      ...analysis.score,
+      value: review.score.editedValue ?? analysis.score.value,
+      justification: review.score.editedJustification ?? analysis.score.justification,
+    },
+    evidence: analysis.evidence
+      .map((e, i) => ({
+        ...e,
+        signal: review.evidence[i]?.editedSignal ?? e.signal,
+        interpretation: review.evidence[i]?.editedInterpretation ?? e.interpretation,
+      }))
+      .filter((_, i) => (review.evidence[i]?.state ?? "pending") !== "rejected"),
+    kpiMapping: analysis.kpiMapping.filter(
+      (_, i) => (review.kpiMapping[i]?.state ?? "pending") !== "rejected"
+    ),
+    gaps: analysis.gaps.filter(
+      (_, i) => (review.gaps[i]?.state ?? "pending") !== "rejected"
+    ),
+    followUpQuestions: analysis.followUpQuestions
+      .map((q, i) => ({ ...q, question: review.followUpQuestions[i]?.editedQuestion ?? q.question }))
+      .filter((_, i) => (review.followUpQuestions[i]?.state ?? "pending") !== "rejected"),
+    biasFlags: analysis.biasFlags.filter(
+      (_, i) => (review.biasFlags[i]?.state ?? "pending") !== "rejected"
+    ),
+  };
+}
+
+// ── Finalized summary modal ───────────────────────────────────────────────────
+function FinalizedModal({
+  analysis,
+  review,
+  fellowName,
+  company,
+  supervisor,
+  onClose,
+}: {
+  analysis: Analysis;
+  review: ReviewState;
+  fellowName: string;
+  company: string;
+  supervisor: string;
+  onClose: () => void;
+}) {
+  const final = buildFinalizedAnalysis(analysis, review);
+  const scoreEdited = review.score.editedValue !== null || review.score.editedJustification !== null;
+
+  const textReport = [
+    `TRINETHRA — FINALIZED ASSESSMENT`,
+    `Fellow: ${fellowName || "—"}  |  Company: ${company || "—"}  |  Supervisor: ${supervisor || "—"}`,
+    ``,
+    `SCORE: ${final.score.value}/10 — ${final.score.label} (${final.score.band})`,
+    `Confidence: ${final.score.confidence}`,
+    `Justification: ${final.score.justification}`,
+    ``,
+    `EVIDENCE (${final.evidence.length} accepted)`,
+    ...final.evidence.map((e) => `  [${e.signal.toUpperCase()}] "${e.quote}"\n  → ${e.interpretation}`),
+    ``,
+    `KPI MAPPING`,
+    ...final.kpiMapping.map((k) => `  • ${KPI_LABEL[k.kpi] ?? k.kpi} (${k.systemOrPersonal}): ${k.evidence}`),
+    ``,
+    `GAPS TO PROBE`,
+    ...final.gaps.map((g) => `  • ${DIMENSION_LABEL[g.dimension] ?? g.dimension}: ${g.detail}`),
+    ``,
+    `FOLLOW-UP QUESTIONS`,
+    ...final.followUpQuestions.map((q, i) => `  ${i + 1}. ${q.question}`),
+    ``,
+    `BIAS FLAGS`,
+    ...final.biasFlags.map((b) => `  • ${b.bias}: ${b.detail}`),
+  ].join("\n");
+
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(textReport).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-4 overflow-y-auto backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold">Finalized assessment</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Intern-reviewed draft — rejected findings removed, edits applied.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={copy}
+              className="rounded-lg border border-border bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 transition-colors"
+            >
+              {copied ? "✓ Copied!" : "Copy as text"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-border bg-muted px-3 py-1.5 text-xs font-medium hover:bg-muted/70 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
+          {/* Meta */}
+          {(fellowName || company || supervisor) && (
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+              {fellowName && <span><strong>Fellow:</strong> {fellowName}</span>}
+              {company && <span><strong>Company:</strong> {company}</span>}
+              {supervisor && <span><strong>Supervisor:</strong> {supervisor}</span>}
+            </div>
+          )}
+
+          {/* Score */}
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Score</h3>
+            <div className={cn("flex items-baseline gap-3 rounded-xl p-4", bandClass(final.score.value))}>
+              <span className="text-4xl font-bold tabular-nums">{final.score.value}</span>
+              <div>
+                <div className="font-semibold">{final.score.label}</div>
+                <div className="text-xs opacity-80">{final.score.band}</div>
+              </div>
+              {scoreEdited && (
+                <span className="ml-auto rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                  edited by intern
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-sm text-foreground/80 leading-relaxed">{final.score.justification}</p>
+          </section>
+
+          {/* Evidence */}
+          {final.evidence.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                Evidence ({final.evidence.length})
+              </h3>
+              <div className="space-y-2">
+                {final.evidence.map((e, i) => (
+                  <div key={i} className="rounded-lg border border-border p-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      {signalBadge(e.signal)}
+                      <Badge variant="outline">{DIMENSION_LABEL[e.dimension] ?? e.dimension}</Badge>
+                    </div>
+                    <blockquote className="border-l-2 border-border pl-3 text-sm italic text-foreground/90">&ldquo;{e.quote}&rdquo;</blockquote>
+                    <p className="mt-1.5 text-xs text-muted-foreground">{e.interpretation}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* KPI */}
+          {final.kpiMapping.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">KPI mapping</h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {final.kpiMapping.map((k, i) => (
+                  <div key={i} className="rounded-lg border border-border p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge>{KPI_LABEL[k.kpi] ?? k.kpi}</Badge>
+                      <span className={cn("text-xs font-medium", k.systemOrPersonal === "system" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300")}>
+                        {k.systemOrPersonal}
+                      </span>
+                    </div>
+                    <p className="text-sm text-foreground/80">{k.evidence}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Gaps */}
+          {final.gaps.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Gaps to probe</h3>
+              <div className="space-y-2">
+                {final.gaps.map((g, i) => (
+                  <div key={i} className="rounded-lg border border-border p-3">
+                    <div className="text-sm font-medium">{DIMENSION_LABEL[g.dimension] ?? g.dimension}</div>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{g.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Follow-up questions */}
+          {final.followUpQuestions.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Follow-up questions</h3>
+              <ol className="space-y-2 list-none">
+                {final.followUpQuestions.map((q, i) => (
+                  <li key={i} className="rounded-lg border border-border p-3">
+                    <p className="text-sm font-medium">{i + 1}. {q.question}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Target gap: {DIMENSION_LABEL[q.targetGap] ?? q.targetGap} · Looking for: {q.lookingFor}</p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+
+          {/* Bias flags */}
+          {final.biasFlags.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Bias flags</h3>
+              <div className="space-y-2">
+                {final.biasFlags.map((b, i) => (
+                  <div key={i} className="rounded-lg border border-border p-3">
+                    <Badge variant="warning">{b.bias}</Badge>
+                    <p className="mt-1 text-sm text-muted-foreground">{b.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
+          Finalized by intern review · {new Date().toLocaleDateString()} · Rejected findings removed · Edits applied
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewProgress({ review, onFinalize }: { review: ReviewState; onFinalize: () => void }) {
+  const items: FindingState[] = [
+    review.score.state,
+    ...review.evidence.map((e) => e.state),
+    ...review.kpiMapping.map((k) => k.state),
+    ...review.gaps.map((g) => g.state),
+    ...review.followUpQuestions.map((q) => q.state),
+    ...review.biasFlags.map((b) => b.state),
+  ];
+  const total = items.length;
+  const accepted = items.filter((s) => s === "accepted").length;
+  const rejected = items.filter((s) => s === "rejected").length;
+  const done = accepted + rejected;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+        <span className="font-medium">Review progress</span>
+        <span>{done}/{total} reviewed · {accepted} accepted · {rejected} rejected</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", done === total ? "bg-emerald-500" : "bg-blue-500")}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {done === total && done > 0 && (
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            ✓ All findings reviewed — ready to finalize.
+          </p>
+          <button
+            type="button"
+            onClick={onFinalize}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"
+          >
+            Finalize →
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
