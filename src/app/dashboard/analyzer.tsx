@@ -104,6 +104,13 @@ function bandClass(value: number) {
   return "band-perf";
 }
 
+function bandLabelClass(band: string) {
+  if (band === "Need Attention") return "text-red-600 dark:text-red-400 font-semibold";
+  if (band === "Productivity") return "text-amber-600 dark:text-amber-400 font-semibold";
+  if (band === "Performance") return "text-emerald-600 dark:text-emerald-400 font-semibold";
+  return "text-muted-foreground";
+}
+
 export function Analyzer({
   initialAnalysis = null,
   initialTranscript = "",
@@ -356,6 +363,12 @@ export function Analyzer({
 
         {/* ── RIGHT PANEL: output ───────────────────────── */}
         <div className="flex-1 min-w-0 overflow-y-auto">
+          {/* Sticky progress bar — always visible while scrolling through findings */}
+          {analysis && review && (
+            <div className="sticky top-0 z-10 px-5 pt-4 pb-2 bg-background/80 backdrop-blur-sm">
+              <ReviewProgress review={review} onFinalize={() => setShowFinal(true)} />
+            </div>
+          )}
           <div className="p-5">
             <AnimatePresence mode="wait">
               {streaming ? (
@@ -382,7 +395,6 @@ export function Analyzer({
                   <GapsCard analysis={analysis} review={review?.gaps ?? null} onUpdate={updateGapReview} />
                   <FollowUpCard analysis={analysis} review={review?.followUpQuestions ?? null} onUpdate={updateFollowUpReview} />
                   {analysis.biasFlags.length > 0 ? <BiasCard analysis={analysis} review={review?.biasFlags ?? null} onUpdate={updateBiasFlagReview} /> : null}
-                  {review && <ReviewProgress review={review} onFinalize={() => setShowFinal(true)} />}
                 </motion.div>
               ) : (
                 <EmptyState key="empty" />
@@ -530,7 +542,7 @@ function ScoreCard({
               <span className={cn("rounded-2xl px-4 py-2 text-4xl font-bold tabular-nums", bandClass(effectiveScore))}>{effectiveScore}</span>
               <div>
                 <div className="text-lg font-semibold">{analysis.score.label}</div>
-                <div className="text-xs text-muted-foreground">{analysis.score.band}</div>
+                <div className={cn("text-xs", bandLabelClass(analysis.score.band))}>{analysis.score.band}</div>
               </div>
             </div>
           </div>
@@ -603,7 +615,7 @@ function ScoreCard({
 function signalBadge(signal: Evidence["signal"]) {
   if (signal === "positive") return <Badge variant="success">positive</Badge>;
   if (signal === "negative") return <Badge variant="danger">negative</Badge>;
-  return <Badge variant="outline">neutral</Badge>;
+  return <Badge className="bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700">neutral</Badge>;
 }
 
 function EvidenceCard({
@@ -1128,7 +1140,7 @@ function FinalizedModal({
               <span className="text-4xl font-bold tabular-nums">{final.score.value}</span>
               <div>
                 <div className="font-semibold">{final.score.label}</div>
-                <div className="text-xs opacity-80">{final.score.band}</div>
+                <div className={cn("text-xs", bandLabelClass(final.score.band))}>{final.score.band}</div>
               </div>
               {scoreEdited && (
                 <span className="ml-auto rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
@@ -1251,7 +1263,7 @@ function ReviewProgress({ review, onFinalize }: { review: ReviewState; onFinaliz
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2.5">
+    <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-sm">
       <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
         <span className="font-medium">Review progress</span>
         <span>{done}/{total} reviewed · {accepted} accepted · {rejected} rejected</span>
